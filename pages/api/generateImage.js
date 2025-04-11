@@ -5,11 +5,20 @@ import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch'; // Fetching the image from the result
 
-const FAL_KEY = process.env.FAL_KEY;
+// 定义多个FAL_KEY
+const FAL_KEYS = process.env.FAL_KEYS ? process.env.FAL_KEYS.split(',') : [];
+let currentKeyIndex = 0;
 
-fal.config({
-    credentials: FAL_KEY,
-});
+// 获取下一个可用的FAL_KEY
+function getNextFalKey() {
+    if (FAL_KEYS.length === 0) {
+        throw new Error('No FAL keys available');
+    }
+    const key = FAL_KEYS[currentKeyIndex];
+    console.log(`[FAL-Key] 当前使用第 ${currentKeyIndex + 1}/${FAL_KEYS.length} 个密钥`);
+    currentKeyIndex = (currentKeyIndex + 1) % FAL_KEYS.length;
+    return key;
+}
 
 export default async function handler(req, res) {
     if (req.method !== "POST") {
@@ -31,6 +40,14 @@ export default async function handler(req, res) {
     } = req.body;
 
     try {
+        // 获取下一个FAL_KEY并配置
+        const currentKey = getNextFalKey();
+        console.log(`[FAL-Key] 开始处理请求，使用密钥: ${currentKey.substring(0, 4)}...`);
+        
+        fal.config({
+            credentials: currentKey,
+        });
+
         const result = await fal.subscribe(model, {
             input: {
                 prompt,
@@ -56,16 +73,30 @@ export default async function handler(req, res) {
 
         // Ensure the outputs folder exists
         if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir);
+            fs.mkdirSync(outputDir, { recursive: true });
         }
 
         // Save the image buffer to a file in the outputs folder
         fs.writeFileSync(outputFilePath, buffer);
+        console.log(`[FAL-Key] 图像生成成功，保存为: ${imageName}`);
 
         // Return a relative URL that the frontend can access
-        res.status(200).json({ message: 'Image generated and saved!', imageUrl: `/outputs/${imageName}` });
+        res.status(200).json({ 
+            message: 'Image generated and saved!', 
+            imageUrl: `/outputs/${imageName}`,
+            usedKey: currentKey.substring(0, 4) + '...',
+            keyIndex: currentKeyIndex,
+            totalKeys: FAL_KEYS.length
+        });
     } catch (error) {
-        console.error("Error generating image:", error.message);
-        res.status(500).json({ message: "Failed to generate image", error: error.message });
+        console.error(`[FAL-Key] 错误: ${error.message}`);
+        console.error(`[FAL-Key] 当前密钥索引: ${currentKeyIndex}`);
+        res.status(500).json({ 
+            message: "Failed to generate image", 
+            error: error.message,
+            currentKey: getNextFalKey().substring(0, 4) + '...',
+            keyIndex: currentKeyIndex,
+            totalKeys: FAL_KEYS.length
+        });
     }
 }
