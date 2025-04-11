@@ -9,15 +9,33 @@ import fetch from 'node-fetch'; // Fetching the image from the result
 const FAL_KEYS = process.env.FAL_KEYS ? process.env.FAL_KEYS.split(',') : [];
 let currentKeyIndex = 0;
 
+// 屏蔽中间部分的密钥
+function maskKey(key) {
+    if (!key || key.length < 10) return '******';
+    const prefix = key.substring(0, 5);
+    const suffix = key.substring(key.length - 3);
+    return `${prefix}${'*'.repeat(key.length - 8)}${suffix}`;
+}
+
 // 获取下一个可用的FAL_KEY
 function getNextFalKey() {
     if (FAL_KEYS.length === 0) {
         throw new Error('No FAL keys available');
     }
     const key = FAL_KEYS[currentKeyIndex];
-    console.log(`[FAL-Key] 当前使用第 ${currentKeyIndex + 1}/${FAL_KEYS.length} 个密钥`);
+    const keyIndexInfo = `${currentKeyIndex + 1}/${FAL_KEYS.length}`;
+    console.log(`[FAL-Key] 当前使用第 ${keyIndexInfo} 个密钥`);
+    
+    // 增加索引以便下次使用下一个密钥
+    const prevIndex = currentKeyIndex;
     currentKeyIndex = (currentKeyIndex + 1) % FAL_KEYS.length;
-    return key;
+    
+    return { 
+        key, 
+        keyIndex: prevIndex,
+        totalKeys: FAL_KEYS.length,
+        maskedKey: maskKey(key)
+    };
 }
 
 // 保存图像元数据到JSON文件
@@ -75,11 +93,11 @@ export default async function handler(req, res) {
 
     try {
         // 获取下一个FAL_KEY并配置
-        const currentKey = getNextFalKey();
-        console.log(`[FAL-Key] 开始处理请求，使用密钥: ${currentKey.substring(0, 4)}...`);
+        const keyInfo = getNextFalKey();
+        console.log(`[FAL-Key] 开始处理请求，使用密钥: ${keyInfo.maskedKey}`);
         
         fal.config({
-            credentials: currentKey,
+            credentials: keyInfo.key,
         });
 
         const result = await fal.subscribe(model, {
@@ -121,20 +139,33 @@ export default async function handler(req, res) {
         res.status(200).json({ 
             message: 'Image generated and saved!', 
             imageUrl: `/outputs/${imageName}`,
-            usedKey: currentKey.substring(0, 4) + '...',
-            keyIndex: currentKeyIndex,
-            totalKeys: FAL_KEYS.length,
+            keyInfo: {
+                maskedKey: keyInfo.maskedKey,
+                keyIndex: keyInfo.keyIndex + 1, // 对用户展示从1开始计数
+                totalKeys: keyInfo.totalKeys
+            },
             userId: userId
         });
     } catch (error) {
         console.error(`[FAL-Key] 错误: ${error.message}`);
-        console.error(`[FAL-Key] 当前密钥索引: ${currentKeyIndex}`);
+        
+        // 获取当前密钥信息
+        const failedKeyIndex = (currentKeyIndex === 0 ? FAL_KEYS.length - 1 : currentKeyIndex - 1);
+        const failedKey = FAL_KEYS[failedKeyIndex];
+        const maskedFailedKey = maskKey(failedKey);
+        
+        console.error(`[FAL-Key] 失败的密钥索引: ${failedKeyIndex + 1}/${FAL_KEYS.length}`);
+        console.error(`[FAL-Key] 失败的密钥(部分): ${maskedFailedKey}`);
+        
         res.status(500).json({ 
             message: "Failed to generate image", 
             error: error.message,
-            currentKey: getNextFalKey().substring(0, 4) + '...',
-            keyIndex: currentKeyIndex,
-            totalKeys: FAL_KEYS.length
+            keyInfo: {
+                maskedKey: maskedFailedKey,
+                keyIndex: failedKeyIndex + 1, // 对用户展示从1开始计数
+                totalKeys: FAL_KEYS.length,
+                status: 'failed'
+            }
         });
     }
 }

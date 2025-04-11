@@ -38,12 +38,17 @@ RUN adduser --system --uid 1001 nextjs
 
 # 创建必要的目录并设置权限
 RUN mkdir -p public/outputs public/metadata
-RUN chown -R nextjs:nodejs public/outputs public/metadata
+RUN chown -R nextjs:nodejs /app
+RUN chmod -R 755 public/outputs public/metadata
 
 # 从构建阶段复制构建结果
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+
+# 添加启动脚本以确保目录存在
+COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 # 设置用户
 USER nextjs
@@ -55,4 +60,5 @@ ENV FAL_KEYS=""
 EXPOSE 3000
 
 # 启动命令
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["node", "server.js"] 

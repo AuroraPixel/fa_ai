@@ -250,15 +250,25 @@ export default function Home() {
           setImageUrl(data.imageUrl); // Display the image from the local /outputs directory
           // 刷新图像历史
           fetchImageHistory(userId);
+          
+          // 显示使用的密钥信息（可选）
+          if (data.keyInfo) {
+            console.log(`使用了第 ${data.keyInfo.keyIndex}/${data.keyInfo.totalKeys} 个密钥: ${data.keyInfo.maskedKey}`);
+          }
         } else {
           throw new Error("No image URL found in the response.");
         }
       } else {
-        setError(`Failed to generate image: ${data.message}`);
+        // 显示更详细的错误信息，包括失败的密钥
+        if (data.keyInfo && data.keyInfo.status === 'failed') {
+          setError(`生成图像失败: ${data.message}。密钥 #${data.keyInfo.keyIndex}/${data.keyInfo.totalKeys} (${data.keyInfo.maskedKey}) 出现问题，请检查该密钥。`);
+        } else {
+          setError(`生成图像失败: ${data.message}`);
+        }
       }
     } catch (err) {
       console.error("Error occurred:", err.message);
-      setError(`Error: ${err.message}`); // This will show more useful information in case something breaks.
+      setError(`错误: ${err.message}`); // This will show more useful information in case something breaks.
     } finally {
       setLoading(false);
     }

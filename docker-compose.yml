@@ -10,9 +10,9 @@ services:
     environment:
       - FAL_KEYS=${FAL_KEYS}
     volumes:
-      # 持久化存储生成的图片和元数据
-      - fal_outputs:/app/public/outputs
-      - fal_metadata:/app/public/metadata
+      # 持久化存储生成的图片和元数据 - 使用绝对路径确保持久化
+      - ./docker-data/outputs:/app/public/outputs
+      - ./docker-data/metadata:/app/public/metadata
     restart: unless-stopped
     # 添加健康检查
     healthcheck:
