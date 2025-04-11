@@ -26,5 +26,12 @@
     "prompt": "cat",
     "timestamp": 1744341956408,
     "imageUrl": "https://s3.cortexai.info/txtxtxtxt1/admin-wang-1744341955462.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minio%2F20250411%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250411T032556Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=f7540f0ea46863cc6fa4edac901c41add61f63767d173bf04ec7408dd256337e"
+  },
+  {
+    "userId": "admin-wang",
+    "imageName": "admin-wang-1744342112495.jpeg",
+    "prompt": "cat",
+    "timestamp": 1744342131597,
+    "imageUrl": "https://s3.cortexai.info/txtxtxtxt1/admin-wang-1744342112495.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minio%2F20250411%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250411T032851Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=30137a1bf7319713d023f7607f950f062fc6d58eb4f37b8f6d54527641a4397b"
   }
 ]

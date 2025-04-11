@@ -165,8 +165,8 @@ export default function Home() {
             setPage(2); // 准备加载第二页
           }
           
-          // 显示最新的图像
-          setImageUrl(`/outputs/${data.images[0].imageName}`);
+          // 显示最新的图像 - 使用图像记录中的imageUrl而不是构建本地路径
+          setImageUrl(data.images[0].imageUrl);
         } else {
           // 如果没有图片，清空显示
           setImageUrl(null);
