@@ -1,4 +1,4 @@
-import { checkRateLimit } from '../../utils/rateLimit';
+import { checkRateLimit, getRateLimitInfo } from '../../utils/rateLimit';
 
 // 获取客户端真实IP地址
 function getClientIp(req) {
@@ -34,20 +34,25 @@ export default async function handler(req, res) {
         // 获取用户IP
         const clientIp = getClientIp(req);
         
+        // 获取速率限制配置
+        const rateLimitInfo = getRateLimitInfo();
+        
         // 检查IP限制状态
         const ipStatus = checkRateLimit(clientIp);
         
-        console.log(`[用户IP查询] 用户: ${userId}, IP: ${clientIp}, 状态: ${ipStatus.limited ? '已限制' : '正常'}, 剩余: ${ipStatus.remaining}/${5}`);
+        console.log(`[用户IP查询] 用户: ${userId}, IP: ${clientIp}, 状态: ${ipStatus.limited ? '已限制' : '正常'}, 剩余: ${ipStatus.remaining}/${rateLimitInfo.maxRequests}`);
         
         // 构建用户IP状态信息
         const ipInfo = {
             ip: clientIp,
-            requestCount: 5 - ipStatus.remaining,
+            requestCount: rateLimitInfo.enabled ? (rateLimitInfo.maxRequests - ipStatus.remaining) : 0,
             remaining: ipStatus.remaining,
             limited: ipStatus.limited,
             resetTime: ipStatus.resetTime,
             resetTimeFormatted: ipStatus.resetTimeFormatted,
-            limit: 5
+            limit: rateLimitInfo.maxRequests,
+            enabled: rateLimitInfo.enabled,
+            minutes: rateLimitInfo.minutes
         };
         
         return res.status(200).json({ 

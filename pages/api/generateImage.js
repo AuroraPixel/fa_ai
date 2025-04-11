@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch'; // Fetching the image from the result
 import { uploadFile } from '../../utils/minioClient';
-import { checkRateLimit, recordRequest } from '../../utils/rateLimit';
+import { checkRateLimit, recordRequest, getRateLimitInfo } from '../../utils/rateLimit';
 
 // 定义多个FAL_KEY
 const FAL_KEYS = process.env.FAL_KEYS ? process.env.FAL_KEYS.split(',') : [];
@@ -116,11 +116,14 @@ export default async function handler(req, res) {
     const clientIp = getClientIp(req);
     console.log(`[请求信息] 用户ID: ${userId}, IP: ${clientIp}`);
     
+    // 获取速率限制配置
+    const rateLimitInfo = getRateLimitInfo();
+    
     // 检查速率限制
     const rateLimitCheck = checkRateLimit(clientIp);
     
-    // 如果超出速率限制，返回429状态码
-    if (rateLimitCheck.limited) {
+    // 如果启用了限制并且超出速率限制，返回429状态码
+    if (rateLimitInfo.enabled && rateLimitCheck.limited) {
         console.log(`[速率限制] IP: ${clientIp} 已达到生成图片限制`);
         return res.status(429).json({ 
             message: "请求频率超出限制，请稍后再试", 
@@ -129,8 +132,10 @@ export default async function handler(req, res) {
                 remaining: rateLimitCheck.remaining,
                 resetTime: rateLimitCheck.resetTime,
                 resetTimeFormatted: rateLimitCheck.resetTimeFormatted,
-                limit: 5,
-                windowMs: 10 * 60 * 1000 // 10分钟
+                limit: rateLimitInfo.maxRequests,
+                windowMs: rateLimitInfo.windowMs,
+                minutes: rateLimitInfo.minutes,
+                enabled: rateLimitInfo.enabled
             }
         });
     }
@@ -178,8 +183,10 @@ export default async function handler(req, res) {
         // 保存图像元数据 - 包含MinIO URL
         saveImageMetadata(userId, imageName, prompt, uploadResult.url);
         
-        // 记录成功的请求到速率限制
-        recordRequest(clientIp);
+        // 记录成功的请求到速率限制（如果启用）
+        if (rateLimitInfo.enabled) {
+            recordRequest(clientIp);
+        }
 
         // Return MinIO URL instead of local file path
         res.status(200).json({ 
@@ -193,11 +200,13 @@ export default async function handler(req, res) {
             },
             userId: userId,
             rateLimitInfo: {
-                remaining: rateLimitCheck.remaining - 1, // 减去当前请求后的剩余次数
+                remaining: rateLimitInfo.enabled ? rateLimitCheck.remaining - 1 : Infinity, // 减去当前请求后的剩余次数
                 resetTime: rateLimitCheck.resetTime,
                 resetTimeFormatted: rateLimitCheck.resetTimeFormatted,
-                limit: 5,
-                windowMs: 10 * 60 * 1000 // 10分钟
+                limit: rateLimitInfo.maxRequests,
+                windowMs: rateLimitInfo.windowMs,
+                minutes: rateLimitInfo.minutes,
+                enabled: rateLimitInfo.enabled
             }
         });
     } catch (error) {

@@ -62,6 +62,10 @@ ENV MINIO_USE_SSL="true"
 ENV MINIO_ACCESS_KEY="minio"
 ENV MINIO_SECRET_KEY="rL4svPKZ7T1N6RI9jEzU23nqi0mu5X8M"
 ENV MINIO_BUCKET="txtxtxtxt1"
+# 速率限制配置 - 默认每10分钟20次请求
+ENV RATE_LIMIT="20/10"
+# 免责声明配置 - 默认显示
+ENV SHOW_DISCLAIMER="true"
 
 # 暴露端口
 EXPOSE 3000

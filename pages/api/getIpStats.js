@@ -1,4 +1,4 @@
-import { getIpStats } from '../../utils/rateLimit';
+import { getIpStats, getRateLimitInfo } from '../../utils/rateLimit';
 
 // 允许访问的管理员ID
 const ADMIN_ID = 'admin-wang';
@@ -16,6 +16,9 @@ export default async function handler(req, res) {
     }
 
     try {
+        // 获取速率限制配置
+        const rateLimitInfo = getRateLimitInfo();
+        
         // 获取所有IP的统计信息
         const stats = getIpStats();
         
@@ -23,11 +26,13 @@ export default async function handler(req, res) {
         
         return res.status(200).json({ 
             stats,
-            timestamp: Date.now(),
-            config: {
-                maxRequests: 5,
-                windowMs: 10 * 60 * 1000 // 10分钟
-            }
+            rateLimit: {
+                enabled: rateLimitInfo.enabled,
+                maxRequests: rateLimitInfo.maxRequests,
+                minutes: rateLimitInfo.minutes,
+                windowMs: rateLimitInfo.windowMs
+            },
+            timestamp: Date.now()
         });
     } catch (error) {
         console.error(`[API错误] 获取IP统计信息时出错: ${error.message}`);

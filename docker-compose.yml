@@ -15,6 +15,10 @@ services:
       - MINIO_ACCESS_KEY=minio
       - MINIO_SECRET_KEY=rL4svPKZ7T1N6RI9jEzU23nqi0mu5X8M
       - MINIO_BUCKET=txtxtxtxt1
+      # 速率限制配置 - 默认每10分钟20次请求
+      - RATE_LIMIT=${RATE_LIMIT:-20/10}
+      # 免责声明配置 - 默认显示
+      - SHOW_DISCLAIMER=${SHOW_DISCLAIMER:-true}
     volumes:
       # 只保留元数据文件夹挂载
       - ./docker-data/metadata:/app/public/metadata

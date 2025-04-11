@@ -24,6 +24,12 @@ export default function Home() {
   // 免责声明弹窗相关状态
   const [isDisclaimerModalOpen, setIsDisclaimerModalOpen] = useState(false);
   const [pendingGenerateData, setPendingGenerateData] = useState(null);
+  const [disclaimerEnabled, setDisclaimerEnabled] = useState(true); // 是否启用免责声明
+  const [limitConfig, setLimitConfig] = useState({
+    enabled: true,
+    maxRequests: 20,
+    minutes: 10
+  });
   
   // 懒加载相关状态
   const [page, setPage] = useState(1);
@@ -75,6 +81,9 @@ export default function Home() {
     } else {
       generateUserId();
     }
+    
+    // 获取系统配置
+    fetchSystemConfig();
   }, []);
 
   // 设置交叉观察器用于懒加载
@@ -262,7 +271,7 @@ export default function Home() {
   const generateImage = async (e) => {
     e.preventDefault();
     
-    // 显示免责声明弹窗
+    // 准备表单数据
     const formData = {
       prompt,
       image_size: imageSize,
@@ -280,8 +289,14 @@ export default function Home() {
         .map(lora => ({ path: lora.url, scale: lora.scale })),
     };
     
-    setPendingGenerateData(formData);
-    setIsDisclaimerModalOpen(true);
+    // 如果免责声明启用，显示免责声明弹窗
+    if (disclaimerEnabled) {
+      setPendingGenerateData(formData);
+      setIsDisclaimerModalOpen(true);
+    } else {
+      // 否则直接生成图片
+      proceedWithImageGeneration(formData);
+    }
   };
 
   // 实际执行图片生成的函数
@@ -519,6 +534,39 @@ export default function Home() {
   // 刷新用户IP状态
   const refreshUserIpStatus = () => {
     fetchUserIpStatus();
+  };
+
+  // 获取系统配置信息
+  const fetchSystemConfig = async () => {
+    try {
+      const response = await fetch('/api/getSystemConfig');
+      const data = await response.json();
+      
+      if (response.ok) {
+        // 设置免责声明是否启用
+        setDisclaimerEnabled(data.showDisclaimer);
+        
+        // 设置限制配置
+        setLimitConfig({
+          enabled: data.rateLimit.enabled,
+          maxRequests: data.rateLimit.maxRequests,
+          minutes: data.rateLimit.minutes
+        });
+        
+        console.log('[系统配置] 已加载系统配置:', data);
+      }
+    } catch (error) {
+      console.error('[系统配置] 获取系统配置失败:', error);
+    }
+  };
+
+  // 渲染免责声明中的限制说明
+  const renderLimitDescription = () => {
+    if (!limitConfig.enabled) {
+      return "本服务未设置图片生成次数限制，但请合理使用系统资源。";
+    }
+    
+    return `本服务为防止用户滥用，限制了用户的生成次数，每个IP每${limitConfig.minutes}分钟只能生成${limitConfig.maxRequests}张图片，请用户自觉遵守。`;
   };
 
   return (
@@ -1147,7 +1195,7 @@ export default function Home() {
               <div className="text-gray-700 text-center mb-4 max-h-60 overflow-y-auto p-4 bg-gray-50 rounded-lg w-full">
                 <p className="mb-3">尊敬的用户，在继续使用本服务前，请您知悉并同意以下条款：</p>
                 <ol className="list-decimal pl-5 text-left space-y-2">
-                  <li>本服务为防止用户滥用，限制了用户每天的生成次数，每个IP每10分钟只能生成5张图片，请用户自觉遵守。</li>
+                  <li>{renderLimitDescription()}</li>
                   <li>本服务生成的所有图像内容均由AI自动创建，不代表本平台及其运营者的观点或立场。</li>
                   <li>用户应自觉遵守中华人民共和国相关法律法规，不得利用本服务生成、传播违法违规内容。</li>
                   <li>用户对使用本服务生成的内容承担全部责任，包括但不限于内容的合法性、道德性及后果。</li>
