@@ -51,10 +51,10 @@ bun install
 
 ## Environment Variables
 
-Create a `.env.local` file in the root of the project and set the following variable with your own FAL-AI API key:
+Create a `.env.local` file in the root of the project and set the following variable with your own FAL-AI API key. If you have multiple keys, separate them with a comma `,`:
 
 ```bash
-FAL_KEY={{your fal.ai API key here}}
+FAL_KEYS={{your fal.ai API keys here}}
 ```
 
 You can obtain your API key by signing up at [FAL-AI](https://fal.ai).
