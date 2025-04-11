@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faMinus } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faMinus, faTrash } from '@fortawesome/free-solid-svg-icons';
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
@@ -300,6 +300,55 @@ export default function Home() {
     setLoraUrls(updatedLoraUrls);
   };
 
+  // 新增删除图片函数
+  const deleteImage = async (imageName, event) => {
+    // 阻止事件冒泡，避免触发图片点击事件
+    if (event) {
+      event.stopPropagation();
+    }
+    
+    try {
+      const response = await fetch(`/api/deleteImage?imageName=${imageName}`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        console.log(`图片删除成功: ${imageName}`);
+        
+        // 从可见图片和所有图片中移除该图片
+        const newVisibleImages = visibleImages.filter(img => img.imageName !== imageName);
+        const newAllImages = allImages.filter(img => img.imageName !== imageName);
+        
+        setVisibleImages(newVisibleImages);
+        setAllImages(newAllImages);
+        
+        // 如果删除的是当前显示的图片，显示下一张图片
+        if (imageUrl && imageUrl.includes(imageName)) {
+          if (newVisibleImages.length > 0) {
+            setImageUrl(`/outputs/${newVisibleImages[0].imageName}`);
+            setPrompt(newVisibleImages[0].prompt);
+          } else {
+            setImageUrl(null);
+          }
+        }
+        
+        // 重新计算是否有更多图片
+        const remainingImagesCount = newAllImages.length - newVisibleImages.length;
+        setHasMore(remainingImagesCount > 0);
+      } else {
+        console.error('删除图片失败');
+      }
+    } catch (error) {
+      console.error(`删除图片出错: ${error.message}`);
+    }
+  };
+
+  // 处理图片加载错误（404）
+  const handleImageError = (imageName) => {
+    console.log(`图片加载失败(404): ${imageName}`);
+    deleteImage(imageName);
+  };
+
   return (
     <div className="grid grid-cols-12 gap-4 h-screen p-4 bg-[#C1EEFF]">
       {/* 顶部用户信息栏 */}
@@ -582,6 +631,11 @@ export default function Home() {
               alt="Generated AI Image"
               className="max-w-full max-h-[75vh] object-contain border border-gray-300 rounded-lg shadow-lg cursor-pointer"
               onClick={handleImageClick}
+              onError={() => {
+                // 如果主图片加载失败，则提取图片名并删除
+                const imageName = imageUrl.split('/').pop();
+                handleImageError(imageName);
+              }}
             />
           </div>
         ) : (
@@ -599,20 +653,31 @@ export default function Home() {
             {visibleImages.map((image, index) => (
               <div 
                 key={index} 
-                className="cursor-pointer border hover:border-gray-500"
+                className="group cursor-pointer border hover:border-gray-500 rounded-md overflow-hidden relative"
                 onClick={() => handleHistoryImageClick(image)}
               >
                 <div className="aspect-w-1 aspect-h-1 overflow-hidden">
                   <img
                     src={`/outputs/${image.imageName}`}
                     alt={`Generated ${index}`}
-                    className="object-cover w-full h-full"
+                    className="object-cover w-full h-full transition duration-300 group-hover:brightness-90"
                     loading="lazy"
+                    onError={() => handleImageError(image.imageName)}
                   />
                 </div>
                 <div className="p-1 text-xs truncate bg-gray-800 text-white">
                   {image.userId === userId ? "你的图像" : `用户: ${image.userId.substring(0, 8)}...`}
                 </div>
+                
+                {/* 悬停时显示的删除按钮 */}
+                <button
+                  className="absolute bottom-8 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-red-600 shadow-md"
+                  onClick={(e) => deleteImage(image.imageName, e)}
+                  aria-label="删除图片"
+                  title="删除此图片"
+                >
+                  <FontAwesomeIcon icon={faTrash} className="text-xs" />
+                </button>
               </div>
             ))}
             
