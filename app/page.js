@@ -1024,6 +1024,7 @@ export default function Home() {
               <div className="text-gray-700 text-center mb-4 max-h-60 overflow-y-auto p-4 bg-gray-50 rounded-lg w-full">
                 <p className="mb-3">尊敬的用户，在继续使用本服务前，请您知悉并同意以下条款：</p>
                 <ol className="list-decimal pl-5 text-left space-y-2">
+                  <li>本服务为防止用户滥用，限制了用户每天的生成次数，每个IP每10分钟只能生成5张图片，请用户自觉遵守。</li>
                   <li>本服务生成的所有图像内容均由AI自动创建，不代表本平台及其运营者的观点或立场。</li>
                   <li>用户应自觉遵守中华人民共和国相关法律法规，不得利用本服务生成、传播违法违规内容。</li>
                   <li>用户对使用本服务生成的内容承担全部责任，包括但不限于内容的合法性、道德性及后果。</li>
