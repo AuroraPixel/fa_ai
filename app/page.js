@@ -55,6 +55,11 @@ export default function Home() {
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [ipStats, setIpStats] = useState([]);
   const [loadingIpStats, setLoadingIpStats] = useState(false);
+  
+  // 用户IP状态面板
+  const [isUserIpPanelOpen, setIsUserIpPanelOpen] = useState(false);
+  const [userIpInfo, setUserIpInfo] = useState(null);
+  const [loadingUserIpInfo, setLoadingUserIpInfo] = useState(false);
 
   // 生成或从localStorage获取用户ID
   useEffect(() => {
@@ -480,6 +485,42 @@ export default function Home() {
     fetchIpStats();
   };
 
+  // 获取用户自己的IP限制状态
+  const fetchUserIpStatus = async () => {
+    setLoadingUserIpInfo(true);
+    try {
+      const response = await fetch(`/api/getUserIpStatus?userId=${userId}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setUserIpInfo(data.ipInfo);
+        console.log(`[用户] 获取到IP状态信息:`, data.ipInfo);
+      } else {
+        console.error(`[用户] 获取IP状态信息失败: ${data.message}`);
+      }
+    } catch (error) {
+      console.error(`[用户] 获取IP状态信息出错: ${error.message}`);
+    } finally {
+      setLoadingUserIpInfo(false);
+    }
+  };
+  
+  // 切换用户IP状态面板
+  const toggleUserIpPanel = () => {
+    const newStatus = !isUserIpPanelOpen;
+    setIsUserIpPanelOpen(newStatus);
+    
+    // 打开面板时获取IP状态
+    if (newStatus) {
+      fetchUserIpStatus();
+    }
+  };
+  
+  // 刷新用户IP状态
+  const refreshUserIpStatus = () => {
+    fetchUserIpStatus();
+  };
+
   return (
     <div className="grid grid-cols-12 gap-4 h-screen p-4 bg-[#C1EEFF]">
       {/* 顶部用户信息栏 */}
@@ -487,13 +528,21 @@ export default function Home() {
         <div className="flex items-center space-x-2">
           <span className="font-bold">用户ID:</span>
           <span className="bg-gray-700 px-3 py-1 rounded">{userId}</span>
-          {isAdmin && (
+          {isAdmin ? (
             <button 
               onClick={toggleAdminPanel}
               className={`bg-red-600 px-3 py-1 rounded ml-2 hover:bg-red-700 flex items-center gap-1`}
             >
               <span>管理面板</span>
               <span className="text-xs">{isAdminPanelOpen ? '▲' : '▼'}</span>
+            </button>
+          ) : (
+            <button 
+              onClick={toggleUserIpPanel}
+              className={`bg-blue-600 px-3 py-1 rounded ml-2 hover:bg-blue-700 flex items-center gap-1`}
+            >
+              <span>我的IP状态</span>
+              <span className="text-xs">{isUserIpPanelOpen ? '▲' : '▼'}</span>
             </button>
           )}
           
@@ -612,6 +661,80 @@ export default function Home() {
           <p className="text-xs text-gray-400 mt-2">
             说明: 限制规则为每IP每10分钟最多生成5张图片。超出限制后需要等待时间重置。
           </p>
+        </div>
+      )}
+
+      {/* 用户IP状态面板 */}
+      {!isAdmin && isUserIpPanelOpen && (
+        <div className="col-span-12 bg-gray-700 text-white p-3 rounded-lg mb-3">
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="text-lg font-bold">我的IP使用情况</h2>
+            <button
+              onClick={refreshUserIpStatus}
+              className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm flex items-center gap-1"
+              disabled={loadingUserIpInfo}
+            >
+              {loadingUserIpInfo ? (
+                <span>加载中...</span>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                  </svg>
+                  <span>刷新</span>
+                </>
+              )}
+            </button>
+          </div>
+          
+          {loadingUserIpInfo ? (
+            <div className="flex justify-center items-center py-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
+              <span className="ml-2">加载中...</span>
+            </div>
+          ) : userIpInfo ? (
+            <div className="bg-gray-800 rounded-lg p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gray-700 p-3 rounded-lg">
+                  <div className="text-gray-300 mb-1">您的IP地址</div>
+                  <div className="text-white font-semibold">{userIpInfo.ip}</div>
+                </div>
+                <div className="bg-gray-700 p-3 rounded-lg">
+                  <div className="text-gray-300 mb-1">限制规则</div>
+                  <div className="text-white font-semibold">{userIpInfo.limit} 张图片 / 10分钟</div>
+                </div>
+                <div className="bg-gray-700 p-3 rounded-lg">
+                  <div className="text-gray-300 mb-1">已使用次数</div>
+                  <div className="text-white font-semibold">{userIpInfo.requestCount || 0} 次</div>
+                </div>
+                <div className="bg-gray-700 p-3 rounded-lg">
+                  <div className="text-gray-300 mb-1">剩余次数</div>
+                  <div className={`font-semibold ${userIpInfo.remaining < 2 ? 'text-red-400' : 'text-white'}`}>
+                    {userIpInfo.remaining} 次
+                  </div>
+                </div>
+                <div className="bg-gray-700 p-3 rounded-lg">
+                  <div className="text-gray-300 mb-1">限制状态</div>
+                  <div className={`font-semibold ${userIpInfo.limited ? 'text-red-400' : 'text-green-400'}`}>
+                    {userIpInfo.limited ? '已限制' : '正常'}
+                  </div>
+                </div>
+                <div className="bg-gray-700 p-3 rounded-lg">
+                  <div className="text-gray-300 mb-1">重置时间</div>
+                  <div className="text-white font-semibold">
+                    {userIpInfo.resetTime ? new Date(userIpInfo.resetTime).toLocaleTimeString() : '未知'}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 text-sm text-gray-400">
+                <p>提示: 如果您已达到限制，需要等到重置时间后才能继续生成图片。</p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-4">
+              <p>暂无IP使用数据，请尝试刷新或生成一张图片。</p>
+            </div>
+          )}
         </div>
       )}
 
