@@ -7,7 +7,7 @@ WORKDIR /app
 # 安装依赖阶段
 FROM base AS deps
 # 安装需要的系统包，比如git和构建工具
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat python3 make g++
 
 # 复制package.json和package-lock.json
 COPY package.json package-lock.json* ./
@@ -37,9 +37,9 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 # 创建必要的目录并设置权限
-RUN mkdir -p public/outputs public/metadata
+RUN mkdir -p public/metadata
 RUN chown -R nextjs:nodejs /app
-RUN chmod -R 755 public/outputs public/metadata
+RUN chmod -R 755 public/metadata
 
 # 从构建阶段复制构建结果
 COPY --from=builder /app/public ./public
@@ -55,6 +55,13 @@ USER nextjs
 
 # 定义环境变量（将在运行时覆盖）
 ENV FAL_KEYS=""
+# MinIO 环境变量
+ENV MINIO_ENDPOINT="s3.cortexai.info"
+ENV MINIO_PORT="443"
+ENV MINIO_USE_SSL="true"
+ENV MINIO_ACCESS_KEY="minio"
+ENV MINIO_SECRET_KEY="rL4svPKZ7T1N6RI9jEzU23nqi0mu5X8M"
+ENV MINIO_BUCKET="txtxtxtxt1"
 
 # 暴露端口
 EXPOSE 3000

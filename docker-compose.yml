@@ -9,9 +9,14 @@ services:
       - "3000:3000"
     environment:
       - FAL_KEYS=${FAL_KEYS}
+      - MINIO_ENDPOINT=s3.cortexai.info
+      - MINIO_PORT=443
+      - MINIO_USE_SSL=true
+      - MINIO_ACCESS_KEY=minio
+      - MINIO_SECRET_KEY=rL4svPKZ7T1N6RI9jEzU23nqi0mu5X8M
+      - MINIO_BUCKET=txtxtxtxt1
     volumes:
-      # 持久化存储生成的图片和元数据 - 使用绝对路径确保持久化
-      - ./docker-data/outputs:/app/public/outputs
+      # 只保留元数据文件夹挂载
       - ./docker-data/metadata:/app/public/metadata
     restart: unless-stopped
     # 添加健康检查

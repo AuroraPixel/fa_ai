@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getFileUrl, fileExists } from '../../utils/minioClient';
 
 const ADMIN_ID = 'admin-wang'; // 管理员ID
 
@@ -37,6 +38,31 @@ export default async function handler(req, res) {
             images = allImageHistory.filter(item => item.userId === userId);
             console.log(`[用户访问] 返回用户 ${userId} 的图像历史，共 ${images.length} 张图像`);
         }
+
+        // 验证并更新图片URL
+        for (let i = 0; i < images.length; i++) {
+            const image = images[i];
+            
+            // 如果已经有存储的有效URL，则使用它
+            if (!image.imageUrl || image.imageUrl.includes('localhost') || Date.now() > image.urlExpiry) {
+                // 检查MinIO中是否存在该图片，不存在则标记为失效
+                const exists = await fileExists(image.imageName);
+                
+                if (exists) {
+                    // 获取新的预签名URL
+                    const url = await getFileUrl(image.imageName);
+                    image.imageUrl = url;
+                    image.urlExpiry = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7天后过期
+                } else {
+                    // 图片不存在，标记为失效
+                    image.imageUrl = null;
+                    image.isInvalid = true;
+                }
+            }
+        }
+        
+        // 过滤掉无效图片
+        images = images.filter(image => !image.isInvalid);
 
         // 按时间戳排序（最新的在前）
         images.sort((a, b) => b.timestamp - a.timestamp);

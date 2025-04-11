@@ -4,6 +4,7 @@ import * as fal from "@fal-ai/serverless-client";
 import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch'; // Fetching the image from the result
+import { uploadFile } from '../../utils/minioClient';
 
 // 定义多个FAL_KEY
 const FAL_KEYS = process.env.FAL_KEYS ? process.env.FAL_KEYS.split(',') : [];
@@ -39,7 +40,7 @@ function getNextFalKey() {
 }
 
 // 保存图像元数据到JSON文件
-function saveImageMetadata(userId, imageName, prompt) {
+function saveImageMetadata(userId, imageName, prompt, imageUrl) {
     try {
         const metadataDir = path.join(process.cwd(), 'public', 'metadata');
         if (!fs.existsSync(metadataDir)) {
@@ -55,12 +56,13 @@ function saveImageMetadata(userId, imageName, prompt) {
             imageHistory = JSON.parse(data);
         }
         
-        // 添加新的图像记录
+        // 添加新的图像记录 - 包含MinIO URL
         imageHistory.push({
             userId,
             imageName,
             prompt,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            imageUrl // 存储MinIO URL
         });
         
         // 保存更新后的数据
@@ -119,26 +121,26 @@ export default async function handler(req, res) {
         const imageResponse = await fetch(imageUrl); // Fetch the image from the result URL
         const buffer = await imageResponse.buffer(); // Convert to a buffer
 
-        const outputDir = path.join(process.cwd(), 'public', 'outputs'); // Save in the public/outputs directory
+        // 生成文件名
         const imageName = `${userId}-${Date.now()}.jpeg`; // 在文件名中包含用户ID
-        const outputFilePath = path.join(outputDir, imageName);
-
-        // Ensure the outputs folder exists
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
-
-        // Save the image buffer to a file in the outputs folder
-        fs.writeFileSync(outputFilePath, buffer);
-        console.log(`[FAL-Key] 图像生成成功，保存为: ${imageName}`);
         
-        // 保存图像元数据
-        saveImageMetadata(userId, imageName, prompt);
+        // 上传到MinIO而不是本地文件系统
+        const uploadResult = await uploadFile(buffer, imageName);
+        
+        if (!uploadResult.success) {
+            throw new Error(`上传到MinIO失败: ${uploadResult.error}`);
+        }
+        
+        console.log(`[MinIO] 图像上传成功: ${imageName}, URL: ${uploadResult.url}`);
+        
+        // 保存图像元数据 - 包含MinIO URL
+        saveImageMetadata(userId, imageName, prompt, uploadResult.url);
 
-        // Return a relative URL that the frontend can access
+        // Return MinIO URL instead of local file path
         res.status(200).json({ 
             message: 'Image generated and saved!', 
-            imageUrl: `/outputs/${imageName}`,
+            imageUrl: uploadResult.url, // 直接使用MinIO URL
+            originalName: imageName, // 保留原始文件名
             keyInfo: {
                 maskedKey: keyInfo.maskedKey,
                 keyIndex: keyInfo.keyIndex + 1, // 对用户展示从1开始计数

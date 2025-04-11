@@ -212,6 +212,14 @@ export default function Home() {
     }
   };
 
+  const [errorModalOpen, setErrorModalOpen] = useState(false);
+  const [errorModalMessage, setErrorModalMessage] = useState("");
+
+  // 关闭错误弹窗
+  const handleCloseErrorModal = () => {
+    setErrorModalOpen(false);
+  };
+
   const generateImage = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -247,9 +255,11 @@ export default function Home() {
 
       if (response.ok) {
         if (data.imageUrl) {
-          setImageUrl(data.imageUrl); // Display the image from the local /outputs directory
-          // 刷新图像历史
-          fetchImageHistory(userId);
+          // 立即设置图片URL以便显示
+          setImageUrl(data.imageUrl);
+          
+          // 然后刷新图像历史
+          await fetchImageHistory(userId);
           
           // 显示使用的密钥信息（可选）
           if (data.keyInfo) {
@@ -262,13 +272,22 @@ export default function Home() {
         // 显示更详细的错误信息，包括失败的密钥
         if (data.keyInfo && data.keyInfo.status === 'failed') {
           setError(`生成图像失败: ${data.message}。密钥 #${data.keyInfo.keyIndex}/${data.keyInfo.totalKeys} (${data.keyInfo.maskedKey}) 出现问题，请检查该密钥。`);
+          // 显示密钥错误弹窗
+          setErrorModalOpen(true);
+          setErrorModalMessage(`生成图像失败: ${data.message}。密钥 #${data.keyInfo.keyIndex}/${data.keyInfo.totalKeys} (${data.keyInfo.maskedKey}) 出现问题，请检查该密钥。`);
         } else {
           setError(`生成图像失败: ${data.message}`);
+          // 显示一般错误弹窗
+          setErrorModalOpen(true);
+          setErrorModalMessage(`生成图像失败: ${data.message}`);
         }
       }
     } catch (err) {
       console.error("Error occurred:", err.message);
-      setError(`错误: ${err.message}`); // This will show more useful information in case something breaks.
+      setError(`错误: ${err.message}`);
+      // 显示异常错误弹窗
+      setErrorModalOpen(true);
+      setErrorModalMessage(`错误: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -276,7 +295,8 @@ export default function Home() {
 
   // 点击历史记录中的图像
   const handleHistoryImageClick = (image) => {
-    setImageUrl(`/outputs/${image.imageName}`);
+    // 使用来自image对象的imageUrl而不是构建本地路径
+    setImageUrl(image.imageUrl);
     setPrompt(image.prompt); // 同时设置对应的提示词
   };
 
@@ -310,6 +330,12 @@ export default function Home() {
     setLoraUrls(updatedLoraUrls);
   };
 
+  // 处理图片加载错误（404）
+  const handleImageError = (image) => {
+    console.log(`图片加载失败(404): ${image.imageName}`);
+    deleteImage(image.imageName);
+  };
+
   // 新增删除图片函数
   const deleteImage = async (imageName, event) => {
     // 阻止事件冒泡，避免触发图片点击事件
@@ -333,13 +359,18 @@ export default function Home() {
         setAllImages(newAllImages);
         
         // 如果删除的是当前显示的图片，显示下一张图片
-        if (imageUrl && imageUrl.includes(imageName)) {
-          if (newVisibleImages.length > 0) {
-            setImageUrl(`/outputs/${newVisibleImages[0].imageName}`);
+        if (imageUrl && newVisibleImages.length > 0) {
+          // 检查是否是当前显示的图片
+          const isCurrentImage = visibleImages.find(
+            img => img.imageName === imageName && img.imageUrl === imageUrl
+          );
+          
+          if (isCurrentImage) {
+            setImageUrl(newVisibleImages[0].imageUrl);
             setPrompt(newVisibleImages[0].prompt);
-          } else {
-            setImageUrl(null);
           }
+        } else if (newVisibleImages.length === 0) {
+          setImageUrl(null);
         }
         
         // 重新计算是否有更多图片
@@ -351,12 +382,6 @@ export default function Home() {
     } catch (error) {
       console.error(`删除图片出错: ${error.message}`);
     }
-  };
-
-  // 处理图片加载错误（404）
-  const handleImageError = (imageName) => {
-    console.log(`图片加载失败(404): ${imageName}`);
-    deleteImage(imageName);
   };
 
   return (
@@ -642,9 +667,11 @@ export default function Home() {
               className="max-w-full max-h-[75vh] object-contain border border-gray-300 rounded-lg shadow-lg cursor-pointer"
               onClick={handleImageClick}
               onError={() => {
-                // 如果主图片加载失败，则提取图片名并删除
-                const imageName = imageUrl.split('/').pop();
-                handleImageError(imageName);
+                // 当图片加载失败时，找到对应的图片并删除
+                const image = [...visibleImages, ...allImages].find(img => img.imageUrl === imageUrl);
+                if (image) {
+                  handleImageError(image);
+                }
               }}
             />
           </div>
@@ -668,11 +695,11 @@ export default function Home() {
               >
                 <div className="aspect-w-1 aspect-h-1 overflow-hidden">
                   <img
-                    src={`/outputs/${image.imageName}`}
+                    src={image.imageUrl}
                     alt={`Generated ${index}`}
                     className="object-cover w-full h-full transition duration-300 group-hover:brightness-90"
                     loading="lazy"
-                    onError={() => handleImageError(image.imageName)}
+                    onError={() => handleImageError(image)}
                   />
                 </div>
                 <div className="p-1 text-xs truncate bg-gray-800 text-white">
@@ -745,6 +772,42 @@ export default function Home() {
                 className="w-auto h-auto"
                 style={{ maxWidth: '100%', maxHeight: 'none' }}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 错误弹窗 */}
+      {errorModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75"
+          onClick={handleCloseErrorModal}
+        >
+          <div
+            className="relative w-auto max-w-lg p-6 bg-white rounded-lg shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="absolute top-4 right-4 text-gray-700 text-3xl font-bold hover:text-gray-900"
+              onClick={handleCloseErrorModal}
+            >
+              &times;
+            </button>
+
+            <div className="flex flex-col items-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">错误</h3>
+              <p className="text-gray-700 text-center">{errorModalMessage}</p>
+              <button
+                className="mt-6 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                onClick={handleCloseErrorModal}
+              >
+                关闭
+              </button>
             </div>
           </div>
         </div>
