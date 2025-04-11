@@ -20,6 +20,39 @@ function getNextFalKey() {
     return key;
 }
 
+// 保存图像元数据到JSON文件
+function saveImageMetadata(userId, imageName, prompt) {
+    try {
+        const metadataDir = path.join(process.cwd(), 'public', 'metadata');
+        if (!fs.existsSync(metadataDir)) {
+            fs.mkdirSync(metadataDir, { recursive: true });
+        }
+        
+        const metadataPath = path.join(metadataDir, 'image_history.json');
+        let imageHistory = [];
+        
+        // 如果文件已存在，读取现有数据
+        if (fs.existsSync(metadataPath)) {
+            const data = fs.readFileSync(metadataPath, 'utf8');
+            imageHistory = JSON.parse(data);
+        }
+        
+        // 添加新的图像记录
+        imageHistory.push({
+            userId,
+            imageName,
+            prompt,
+            timestamp: Date.now()
+        });
+        
+        // 保存更新后的数据
+        fs.writeFileSync(metadataPath, JSON.stringify(imageHistory, null, 2));
+        console.log(`[用户历史] 已保存图像元数据: ${userId} - ${imageName}`);
+    } catch (error) {
+        console.error(`[用户历史] 保存元数据时出错: ${error.message}`);
+    }
+}
+
 export default async function handler(req, res) {
     if (req.method !== "POST") {
         return res.status(405).json({ message: "Method Not Allowed" });
@@ -36,6 +69,7 @@ export default async function handler(req, res) {
         output_format,
         sync_mode,
         model,
+        userId, // 新增用户ID参数
         loras = [] // Default to an empty array if not provided
     } = req.body;
 
@@ -68,7 +102,7 @@ export default async function handler(req, res) {
         const buffer = await imageResponse.buffer(); // Convert to a buffer
 
         const outputDir = path.join(process.cwd(), 'public', 'outputs'); // Save in the public/outputs directory
-        const imageName = `generated-image-${Date.now()}.jpeg`;
+        const imageName = `${userId}-${Date.now()}.jpeg`; // 在文件名中包含用户ID
         const outputFilePath = path.join(outputDir, imageName);
 
         // Ensure the outputs folder exists
@@ -79,6 +113,9 @@ export default async function handler(req, res) {
         // Save the image buffer to a file in the outputs folder
         fs.writeFileSync(outputFilePath, buffer);
         console.log(`[FAL-Key] 图像生成成功，保存为: ${imageName}`);
+        
+        // 保存图像元数据
+        saveImageMetadata(userId, imageName, prompt);
 
         // Return a relative URL that the frontend can access
         res.status(200).json({ 
@@ -86,7 +123,8 @@ export default async function handler(req, res) {
             imageUrl: `/outputs/${imageName}`,
             usedKey: currentKey.substring(0, 4) + '...',
             keyIndex: currentKeyIndex,
-            totalKeys: FAL_KEYS.length
+            totalKeys: FAL_KEYS.length,
+            userId: userId
         });
     } catch (error) {
         console.error(`[FAL-Key] 错误: ${error.message}`);

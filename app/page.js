@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faMinus } from '@fortawesome/free-solid-svg-icons';
 
@@ -10,6 +10,21 @@ export default function Home() {
   const [error, setError] = useState(null);
   const [generatedImages, setGeneratedImages] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false); // For modal
+  const [userId, setUserId] = useState(""); // 用户ID
+  const [isAdmin, setIsAdmin] = useState(false); // 是否为管理员
+
+  // 显示用户ID的输入框
+  const [showUserIdInput, setShowUserIdInput] = useState(false);
+  const [userIdInput, setUserIdInput] = useState("");
+  
+  // 懒加载相关状态
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [visibleImages, setVisibleImages] = useState([]);
+  const [allImages, setAllImages] = useState([]);
+  const observerRef = useRef(null);
+  const loadingRef = useRef(null);
 
   // Additional parameters for fine-tuning
   const [imageSize, setImageSize] = useState("landscape_4_3");
@@ -25,33 +40,177 @@ export default function Home() {
   // Model Selection
   const [model, setModel] = useState("fal-ai/flux-lora");
 
-  // Fetch generated images from the outputs directory
+  // 每页显示的图片数量
+  const IMAGES_PER_PAGE = 6;
+
+  // 生成或从localStorage获取用户ID
   useEffect(() => {
-    const fetchImages = async () => {
-      try {
-        const res = await fetch("/api/getGeneratedImages"); // Backend route that lists images
-        const data = await res.json();
+    const storedUserId = localStorage.getItem("userId");
+    if (storedUserId) {
+      setUserId(storedUserId);
+      // 检查是否是管理员
+      if (storedUserId === "admin-wang") {
+        setIsAdmin(true);
+      }
+      // 获取该用户的图像历史
+      fetchImageHistory(storedUserId);
+    } else {
+      generateUserId();
+    }
+  }, []);
 
-        // Sort images by the numeric part of the filename (assuming the filename is like `generated-image-<timestamp>.jpeg`)
-        const sortedImages = data.images.sort((a, b) => {
-          const timeA = parseInt(a.match(/(\d+)\.jpeg$/)[1]);
-          const timeB = parseInt(b.match(/(\d+)\.jpeg$/)[1]);
-          return timeB - timeA; // Sort in descending order (most recent first)
-        });
-
-        setGeneratedImages(sortedImages);
-
-        // Display the most recent image by default
-        if (sortedImages.length > 0) {
-          setImageUrl(`/outputs/${sortedImages[0]}`);
-        }
-      } catch (error) {
-        console.error("Failed to fetch images:", error);
+  // 设置交叉观察器用于懒加载
+  useEffect(() => {
+    const options = {
+      root: null,
+      rootMargin: '0px',
+      threshold: 0.1
+    };
+    
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && hasMore && !loadingMore) {
+        loadMoreImages();
+      }
+    }, options);
+    
+    observerRef.current = observer;
+    
+    if (loadingRef.current) {
+      observer.observe(loadingRef.current);
+    }
+    
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
       }
     };
+  }, [hasMore, loadingMore, page]);
 
-    fetchImages();
-  }, []);
+  // 加载更多图片的函数
+  const loadMoreImages = useCallback(() => {
+    if (!hasMore || loadingMore) return;
+    
+    setLoadingMore(true);
+    
+    // 计算要显示的图片
+    const startIndex = (page - 1) * IMAGES_PER_PAGE;
+    const endIndex = page * IMAGES_PER_PAGE;
+    const newImages = allImages.slice(startIndex, endIndex);
+    
+    if (newImages.length > 0) {
+      setVisibleImages(prev => [...prev, ...newImages]);
+      setPage(prev => prev + 1);
+      
+      // 如果已经加载了所有图片，就设置hasMore为false
+      if (endIndex >= allImages.length) {
+        setHasMore(false);
+      }
+    } else {
+      setHasMore(false);
+    }
+    
+    setLoadingMore(false);
+  }, [page, allImages, hasMore, loadingMore]);
+
+  // 生成唯一用户ID
+  const generateUserId = async () => {
+    try {
+      const response = await fetch("/api/generateUserId");
+      const data = await response.json();
+      
+      if (response.ok) {
+        setUserId(data.userId);
+        localStorage.setItem("userId", data.userId);
+        fetchImageHistory(data.userId);
+      }
+    } catch (error) {
+      console.error("Failed to generate user ID:", error);
+    }
+  };
+
+  // 重置图片加载状态
+  const resetImageLoading = () => {
+    setPage(1);
+    setHasMore(true);
+    setVisibleImages([]);
+    setAllImages([]);
+    setImageUrl(null);
+  };
+
+  // 获取用户图像历史
+  const fetchImageHistory = async (id) => {
+    try {
+      // 重置图片加载状态
+      resetImageLoading();
+      
+      const response = await fetch(`/api/getImageHistory?userId=${id}`);
+      const data = await response.json();
+
+      if (response.ok) {
+        setIsAdmin(data.isAdmin);
+        
+        if (data.images && data.images.length > 0) {
+          // 存储所有图片
+          setAllImages(data.images);
+          
+          // 只加载第一页图片
+          const initialImages = data.images.slice(0, IMAGES_PER_PAGE);
+          setVisibleImages(initialImages);
+          
+          // 如果图片总数小于每页显示数，就没有更多图片了
+          if (data.images.length <= IMAGES_PER_PAGE) {
+            setHasMore(false);
+          } else {
+            setHasMore(true);
+            setPage(2); // 准备加载第二页
+          }
+          
+          // 显示最新的图像
+          setImageUrl(`/outputs/${data.images[0].imageName}`);
+        } else {
+          // 如果没有图片，清空显示
+          setImageUrl(null);
+          setHasMore(false);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch image history:", error);
+      setImageUrl(null);
+    }
+  };
+
+  // 切换用户ID输入框
+  const toggleUserIdInput = () => {
+    setShowUserIdInput(!showUserIdInput);
+    setUserIdInput("");
+  };
+
+  // 提交用户ID
+  const submitUserId = () => {
+    if (userIdInput) {
+      // 如果ID不同，才重新设置
+      if (userIdInput !== userId) {
+        setUserId(userIdInput);
+        localStorage.setItem("userId", userIdInput);
+        
+        // 检查是否是管理员
+        if (userIdInput === "admin-wang") {
+          setIsAdmin(true);
+        } else {
+          setIsAdmin(false);
+        }
+        
+        // 清空当前显示的图片
+        setImageUrl(null);
+        setGeneratedImages([]);
+        
+        // 获取新用户的图像历史
+        fetchImageHistory(userIdInput);
+      }
+      
+      setShowUserIdInput(false);
+    }
+  };
 
   const generateImage = async (e) => {
     e.preventDefault();
@@ -76,6 +235,7 @@ export default function Home() {
           output_format: outputFormat,
           sync_mode: syncMode,
           model, // Pass the selected model to the backend
+          userId, // 添加用户ID
           loras: loraUrls
             .filter(lora => lora.url.trim() !== "") // Filter out any LoRAs with empty URLs
             .map(lora => ({ path: lora.url, scale: lora.scale })),
@@ -88,7 +248,8 @@ export default function Home() {
       if (response.ok) {
         if (data.imageUrl) {
           setImageUrl(data.imageUrl); // Display the image from the local /outputs directory
-          setGeneratedImages([data.imageUrl.split('/').pop(), ...generatedImages]);
+          // 刷新图像历史
+          fetchImageHistory(userId);
         } else {
           throw new Error("No image URL found in the response.");
         }
@@ -101,6 +262,12 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 点击历史记录中的图像
+  const handleHistoryImageClick = (image) => {
+    setImageUrl(`/outputs/${image.imageName}`);
+    setPrompt(image.prompt); // 同时设置对应的提示词
   };
 
   const handleImageClick = () => {
@@ -135,6 +302,51 @@ export default function Home() {
 
   return (
     <div className="grid grid-cols-12 gap-4 h-screen p-4 bg-[#C1EEFF]">
+      {/* 顶部用户信息栏 */}
+      <div className="col-span-12 bg-gray-800 text-white p-3 rounded-lg flex justify-between items-center mb-1">
+        <div className="flex items-center space-x-2">
+          <span className="font-bold">用户ID:</span>
+          <span className="bg-gray-700 px-3 py-1 rounded">{userId}</span>
+          {isAdmin && <span className="bg-red-600 px-3 py-1 rounded ml-2">管理员</span>}
+        </div>
+        <button
+          onClick={toggleUserIdInput}
+          className="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded"
+        >
+          切换用户
+        </button>
+      </div>
+
+      {/* 用户ID输入对话框 */}
+      {showUserIdInput && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-96">
+            <h3 className="text-xl font-bold mb-4">输入用户ID</h3>
+            <input
+              type="text"
+              value={userIdInput}
+              onChange={(e) => setUserIdInput(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded mb-4"
+              placeholder="输入用户ID"
+            />
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowUserIdInput(false)}
+                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+              >
+                取消
+              </button>
+              <button
+                onClick={submitUserId}
+                className="px-4 py-2 bg-black text-white rounded hover:bg-gray-700"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Left Sidebar for form */}
       <div className="col-span-3 bg-gray-100 border-r border-gray-300 overflow-y-auto space-y-6 shadow-lg p-4 h-full">
         <h2 className="text-2xl font-bold text-gray-800">fal.ai Image Generator</h2>
@@ -356,78 +568,112 @@ export default function Home() {
         {error && <p className="text-lg text-red-600">{error}</p>}
       </div>
 
-      {/* Center Panel for displaying the generated image */}
-      <div className="col-span-7 flex items-center justify-center p-4 bg-white shadow-lg">
+      {/* 图片生成区域 - 扩大显示空间 */}
+      <div className="col-span-8 flex items-center justify-center p-4 bg-white shadow-lg">
         {loading ? (
           <div className="text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-gray-500 mx-auto"></div>
-            <p className="text-gray-600 mt-4">Image loading...</p>
+            <p className="text-gray-600 mt-4">图像生成中...</p>
           </div>
         ) : imageUrl ? (
-          <div className="relative">
+          <div className="relative w-full h-full flex items-center justify-center">
             <img
               src={imageUrl}
               alt="Generated AI Image"
-              className="max-w-full max-h-screen object-contain border border-gray-300 rounded-lg shadow-lg cursor-pointer"
-              onClick={handleImageClick} // Trigger the modal when the image is clicked
+              className="max-w-full max-h-[75vh] object-contain border border-gray-300 rounded-lg shadow-lg cursor-pointer"
+              onClick={handleImageClick}
             />
           </div>
         ) : (
-          <p className="text-gray-600">No image generated yet</p>
+          <p className="text-gray-600">尚未生成图像</p>
         )}
+      </div>
 
-        {/* Modal for full-size image */}
-        {isModalOpen && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75"
-            onClick={handleCloseModal} // Close the modal when clicking outside the image
-          >
-            <div
-              className="relative w-auto max-w-full p-4 bg-white rounded-lg shadow-lg overflow-auto"
-              onClick={(e) => e.stopPropagation()} // Prevent modal close when clicking inside the modal
-              style={{ maxHeight: '95vh' }} // Ensure the modal takes up most of the viewport but allows scrolling
-            >
-              {/* X button to close the modal */}
-              <button
-                className="absolute top-4 right-4 text-gray-700 text-3xl font-bold hover:text-gray-900"
-                onClick={handleCloseModal}
+      {/* 右侧历史记录区域 - 紧贴右侧，使用固定滚动条 */}
+      <div className="col-span-1 bg-gray-100 shadow-lg h-full flex flex-col p-0 overflow-hidden">
+        <h2 className="text-center py-2 bg-gray-200 font-bold text-gray-800 border-b border-gray-300">图像历史</h2>
+        
+        {/* 添加固定高度和强制显示滚动条的容器 */}
+        <div className="flex-grow overflow-y-scroll" style={{ scrollbarWidth: 'thin', height: 'calc(100vh - 120px)' }}>
+          <div className="grid grid-cols-1 gap-2 p-2">
+            {visibleImages.map((image, index) => (
+              <div 
+                key={index} 
+                className="cursor-pointer border hover:border-gray-500"
+                onClick={() => handleHistoryImageClick(image)}
               >
-                &times;
-              </button>
-
-              {/* Full-size image with max constraints inside the modal */}
-              <div className="flex justify-center items-center">
-                <img
-                  src={imageUrl}
-                  alt="Full-size Generated AI Image"
-                  className="w-auto h-auto"
-                  style={{ maxWidth: '100%', maxHeight: 'none' }} // Prevent scaling the image down
-                />
+                <div className="aspect-w-1 aspect-h-1 overflow-hidden">
+                  <img
+                    src={`/outputs/${image.imageName}`}
+                    alt={`Generated ${index}`}
+                    className="object-cover w-full h-full"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="p-1 text-xs truncate bg-gray-800 text-white">
+                  {image.userId === userId ? "你的图像" : `用户: ${image.userId.substring(0, 8)}...`}
+                </div>
               </div>
+            ))}
+            
+            {/* 加载更多的指示器 */}
+            {hasMore && (
+              <div 
+                ref={loadingRef} 
+                className="flex justify-center items-center py-4"
+              >
+                {loadingMore ? (
+                  <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-gray-500"></div>
+                ) : (
+                  <button 
+                    onClick={loadMoreImages}
+                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-sm"
+                  >
+                    加载更多
+                  </button>
+                )}
+              </div>
+            )}
+            
+            {/* 如果没有图片，显示提示信息 */}
+            {visibleImages.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                暂无图片历史记录
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Modal for full-size image */}
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75"
+          onClick={handleCloseModal}
+        >
+          <div
+            className="relative w-auto max-w-full p-4 bg-white rounded-lg shadow-lg overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: '95vh' }}
+          >
+            <button
+              className="absolute top-4 right-4 text-gray-700 text-3xl font-bold hover:text-gray-900"
+              onClick={handleCloseModal}
+            >
+              &times;
+            </button>
+
+            <div className="flex justify-center items-center">
+              <img
+                src={imageUrl}
+                alt="Full-size Generated AI Image"
+                className="w-auto h-auto"
+                style={{ maxWidth: '100%', maxHeight: 'none' }}
+              />
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Right Sidebar for generated image history */}
-      <div className="col-span-2 bg-gray-100 border-l border-gray-300 overflow-auto shadow-lg p-4">
-        <h2 className="text-lg font-semibold text-gray-700">Image History</h2>
-        <ul className="space-y-2">
-          {generatedImages.map((image, index) => (
-            <li
-              key={index}
-              className="cursor-pointer p-2 bg-gray-200 rounded-lg shadow hover:bg-gray-300"
-              onClick={() => setImageUrl(`/outputs/${image}`)} // Ensure the image path is correct
-            >
-              <img
-                src={`/outputs/${image}`}
-                alt={`Generated Image ${index + 1}`}
-                className="w-full h-auto border border-gray-300 rounded-lg"
-              />
-            </li>
-          ))}
-        </ul>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
