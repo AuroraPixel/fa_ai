@@ -1,0 +1,29 @@
+version: '3'
+
+services:
+  fal-ai-web-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - FAL_KEYS=${FAL_KEYS}
+    volumes:
+      # 持久化存储生成的图片和元数据
+      - fal_outputs:/app/public/outputs
+      - fal_metadata:/app/public/metadata
+    restart: unless-stopped
+    # 添加健康检查
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  fal_outputs:
+    # 保存生成的图片
+  fal_metadata:
+    # 保存图片元数据 

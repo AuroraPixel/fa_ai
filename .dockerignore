@@ -1,0 +1,52 @@
+# 版本控制
+.git
+.github
+.gitignore
+
+# 依赖包
+node_modules
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# 构建输出
+.next
+out
+
+# 本地开发文件
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE配置
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 已生成的图片和元数据
+public/outputs/*
+public/metadata/*
+
+# 日志文件
+*.log
+
+# 测试文件
+__tests__
+*.test.js
+*.spec.js
+
+# 文档
+README.md
+LICENSE
+*.md
+
+# Docker相关文件
+Dockerfile
+.dockerignore
+docker-compose.yml 
