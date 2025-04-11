@@ -17,6 +17,14 @@ export default function Home() {
   const [showUserIdInput, setShowUserIdInput] = useState(false);
   const [userIdInput, setUserIdInput] = useState("");
   
+  // 速率限制状态
+  const [rateLimitInfo, setRateLimitInfo] = useState(null);
+  const [isRateLimitModalOpen, setIsRateLimitModalOpen] = useState(false);
+  
+  // 免责声明弹窗相关状态
+  const [isDisclaimerModalOpen, setIsDisclaimerModalOpen] = useState(false);
+  const [pendingGenerateData, setPendingGenerateData] = useState(null);
+  
   // 懒加载相关状态
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -42,6 +50,11 @@ export default function Home() {
 
   // 每页显示的图片数量
   const IMAGES_PER_PAGE = 6;
+
+  // 管理员面板相关状态
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [ipStats, setIpStats] = useState([]);
+  const [loadingIpStats, setLoadingIpStats] = useState(false);
 
   // 生成或从localStorage获取用户ID
   useEffect(() => {
@@ -220,8 +233,54 @@ export default function Home() {
     setErrorModalOpen(false);
   };
 
+  // 关闭速率限制弹窗
+  const handleCloseRateLimitModal = () => {
+    setIsRateLimitModalOpen(false);
+  };
+
+  // 关闭免责声明弹窗
+  const handleCloseDisclaimerModal = () => {
+    setIsDisclaimerModalOpen(false);
+    // 取消生成操作
+    setPendingGenerateData(null);
+  };
+
+  // 同意免责声明并继续生成
+  const handleAcceptDisclaimer = () => {
+    setIsDisclaimerModalOpen(false);
+    // 继续生成操作
+    if (pendingGenerateData) {
+      proceedWithImageGeneration(pendingGenerateData);
+    }
+  };
+
   const generateImage = async (e) => {
     e.preventDefault();
+    
+    // 显示免责声明弹窗
+    const formData = {
+      prompt,
+      image_size: imageSize,
+      num_inference_steps: numInferenceSteps,
+      guidance_scale: guidanceScale,
+      num_images: numImages,
+      enable_safety_checker: enableSafetyChecker,
+      strength,
+      output_format: outputFormat,
+      sync_mode: syncMode,
+      model,
+      userId,
+      loras: loraUrls
+        .filter(lora => lora.url.trim() !== "")
+        .map(lora => ({ path: lora.url, scale: lora.scale })),
+    };
+    
+    setPendingGenerateData(formData);
+    setIsDisclaimerModalOpen(true);
+  };
+
+  // 实际执行图片生成的函数
+  const proceedWithImageGeneration = async (formData) => {
     setLoading(true);
     setError(null);
     setImageUrl(null);
@@ -232,26 +291,23 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          prompt,
-          image_size: imageSize,
-          num_inference_steps: numInferenceSteps,
-          guidance_scale: guidanceScale,
-          num_images: numImages,
-          enable_safety_checker: enableSafetyChecker,
-          strength,
-          output_format: outputFormat,
-          sync_mode: syncMode,
-          model, // Pass the selected model to the backend
-          userId, // 添加用户ID
-          loras: loraUrls
-            .filter(lora => lora.url.trim() !== "") // Filter out any LoRAs with empty URLs
-            .map(lora => ({ path: lora.url, scale: lora.scale })),
-        }),
+        body: JSON.stringify(formData),
       });
 
       const data = await response.json();
       console.log("API Response:", data); // Log the full response from the API
+
+      // 保存速率限制信息（如果有）
+      if (data.rateLimitInfo) {
+        setRateLimitInfo(data.rateLimitInfo);
+      }
+
+      if (response.status === 429) {
+        // 速率限制错误
+        setError(`生成图像频率受限: ${data.message}`);
+        setIsRateLimitModalOpen(true);
+        return;
+      }
 
       if (response.ok) {
         if (data.imageUrl) {
@@ -384,6 +440,46 @@ export default function Home() {
     }
   };
 
+  // 获取IP统计信息
+  const fetchIpStats = async () => {
+    if (!isAdmin) return;
+    
+    setLoadingIpStats(true);
+    try {
+      const response = await fetch(`/api/getIpStats?userId=${userId}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setIpStats(data.stats);
+        console.log(`[管理员] 获取到 ${data.stats.length} 个IP的统计信息`);
+      } else {
+        console.error(`[管理员] 获取IP统计信息失败: ${data.message}`);
+      }
+    } catch (error) {
+      console.error(`[管理员] 获取IP统计信息出错: ${error.message}`);
+    } finally {
+      setLoadingIpStats(false);
+    }
+  };
+  
+  // 切换管理员面板
+  const toggleAdminPanel = () => {
+    if (!isAdmin) return;
+    
+    const newStatus = !isAdminPanelOpen;
+    setIsAdminPanelOpen(newStatus);
+    
+    // 打开面板时获取统计信息
+    if (newStatus) {
+      fetchIpStats();
+    }
+  };
+  
+  // 刷新IP统计信息
+  const refreshIpStats = () => {
+    fetchIpStats();
+  };
+
   return (
     <div className="grid grid-cols-12 gap-4 h-screen p-4 bg-[#C1EEFF]">
       {/* 顶部用户信息栏 */}
@@ -391,7 +487,28 @@ export default function Home() {
         <div className="flex items-center space-x-2">
           <span className="font-bold">用户ID:</span>
           <span className="bg-gray-700 px-3 py-1 rounded">{userId}</span>
-          {isAdmin && <span className="bg-red-600 px-3 py-1 rounded ml-2">管理员</span>}
+          {isAdmin && (
+            <button 
+              onClick={toggleAdminPanel}
+              className={`bg-red-600 px-3 py-1 rounded ml-2 hover:bg-red-700 flex items-center gap-1`}
+            >
+              <span>管理面板</span>
+              <span className="text-xs">{isAdminPanelOpen ? '▲' : '▼'}</span>
+            </button>
+          )}
+          
+          {/* 速率限制信息显示 */}
+          {rateLimitInfo && (
+            <div className="ml-4 flex items-center">
+              <span className="text-sm">剩余请求: </span>
+              <span className={`ml-1 px-2 py-1 rounded text-sm ${
+                rateLimitInfo.remaining < 2 ? 'bg-red-600' : 
+                rateLimitInfo.remaining < 4 ? 'bg-yellow-600' : 'bg-green-600'
+              }`}>
+                {rateLimitInfo.remaining}/{rateLimitInfo.limit}
+              </span>
+            </div>
+          )}
         </div>
         <button
           onClick={toggleUserIdInput}
@@ -428,6 +545,73 @@ export default function Home() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 管理员面板 */}
+      {isAdmin && isAdminPanelOpen && (
+        <div className="col-span-12 bg-gray-700 text-white p-3 rounded-lg mb-3">
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="text-lg font-bold">IP限制统计</h2>
+            <button
+              onClick={refreshIpStats}
+              className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm flex items-center gap-1"
+              disabled={loadingIpStats}
+            >
+              {loadingIpStats ? (
+                <span>加载中...</span>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                  </svg>
+                  <span>刷新</span>
+                </>
+              )}
+            </button>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="min-w-full bg-gray-800 rounded-lg overflow-hidden">
+              <thead className="bg-gray-900">
+                <tr>
+                  <th className="py-2 px-4 text-left">IP地址</th>
+                  <th className="py-2 px-4 text-left">请求次数</th>
+                  <th className="py-2 px-4 text-left">剩余次数</th>
+                  <th className="py-2 px-4 text-left">限制状态</th>
+                  <th className="py-2 px-4 text-left">重置时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ipStats.length > 0 ? (
+                  ipStats.map((stat, index) => (
+                    <tr key={index} className={index % 2 === 0 ? 'bg-gray-800' : 'bg-gray-750'}>
+                      <td className="py-2 px-4">{stat.ip}</td>
+                      <td className="py-2 px-4">{stat.requestCount}</td>
+                      <td className="py-2 px-4">{stat.remaining}</td>
+                      <td className="py-2 px-4">
+                        <span className={`px-2 py-1 rounded text-sm ${
+                          stat.limited ? 'bg-red-600' : 'bg-green-600'
+                        }`}>
+                          {stat.limited ? '已限制' : '正常'}
+                        </span>
+                      </td>
+                      <td className="py-2 px-4">{new Date(stat.resetTime).toLocaleTimeString()}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="5" className="py-4 text-center">
+                      {loadingIpStats ? '正在加载IP统计信息...' : '暂无IP统计数据'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            说明: 限制规则为每IP每10分钟最多生成5张图片。超出限制后需要等待时间重置。
+          </p>
         </div>
       )}
 
@@ -807,6 +991,118 @@ export default function Home() {
                 onClick={handleCloseErrorModal}
               >
                 关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 免责声明弹窗 */}
+      {isDisclaimerModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75"
+          onClick={handleCloseDisclaimerModal}
+        >
+          <div
+            className="relative w-auto max-w-lg p-6 bg-white rounded-lg shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="absolute top-4 right-4 text-gray-700 text-3xl font-bold hover:text-gray-900"
+              onClick={handleCloseDisclaimerModal}
+            >
+              &times;
+            </button>
+
+            <div className="flex flex-col items-center">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-4">免责声明</h3>
+              <div className="text-gray-700 text-center mb-4 max-h-60 overflow-y-auto p-4 bg-gray-50 rounded-lg w-full">
+                <p className="mb-3">尊敬的用户，在继续使用本服务前，请您知悉并同意以下条款：</p>
+                <ol className="list-decimal pl-5 text-left space-y-2">
+                  <li>本服务生成的所有图像内容均由AI自动创建，不代表本平台及其运营者的观点或立场。</li>
+                  <li>用户应自觉遵守中华人民共和国相关法律法规，不得利用本服务生成、传播违法违规内容。</li>
+                  <li>用户对使用本服务生成的内容承担全部责任，包括但不限于内容的合法性、道德性及后果。</li>
+                  <li>本平台不对AI生成内容的准确性、适用性、合法性提供任何形式的保证。</li>
+                  <li>用户应尊重他人知识产权，不得利用本服务侵犯他人合法权益。</li>
+                  <li>本平台保留在不通知的情况下修改服务条款、暂停或终止服务的权利。</li>
+                </ol>
+                <p className="mt-3 font-semibold">本服务仅供学习交流使用，请勿用于商业或其他用途。</p>
+              </div>
+              <div className="flex space-x-4">
+                <button
+                  className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
+                  onClick={handleCloseDisclaimerModal}
+                >
+                  不同意并取消
+                </button>
+                <button
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  onClick={handleAcceptDisclaimer}
+                >
+                  同意并继续
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 速率限制弹窗 */}
+      {isRateLimitModalOpen && rateLimitInfo && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75"
+          onClick={handleCloseRateLimitModal}
+        >
+          <div
+            className="relative w-auto max-w-lg p-6 bg-white rounded-lg shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="absolute top-4 right-4 text-gray-700 text-3xl font-bold hover:text-gray-900"
+              onClick={handleCloseRateLimitModal}
+            >
+              &times;
+            </button>
+
+            <div className="flex flex-col items-center">
+              <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+                <svg className="w-10 h-10 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">请求频率限制</h3>
+              <p className="text-gray-700 text-center mb-2">
+                您的IP地址已达到图片生成频率限制。
+              </p>
+              <div className="text-gray-700 bg-gray-100 p-3 rounded-lg w-full mb-3">
+                <div className="flex justify-between mb-1">
+                  <span>限制:</span>
+                  <span>{rateLimitInfo.limit} 张图片 / 10分钟</span>
+                </div>
+                <div className="flex justify-between mb-1">
+                  <span>剩余次数:</span>
+                  <span className={rateLimitInfo.remaining === 0 ? "text-red-600 font-bold" : ""}>
+                    {rateLimitInfo.remaining}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>重置时间:</span>
+                  <span>{rateLimitInfo.resetTimeFormatted}</span>
+                </div>
+              </div>
+              <p className="text-sm text-gray-500 italic text-center">
+                您可以继续浏览和查看已生成的图片，但暂时无法生成新图片。
+              </p>
+              <button
+                className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                onClick={handleCloseRateLimitModal}
+              >
+                我知道了
               </button>
             </div>
           </div>

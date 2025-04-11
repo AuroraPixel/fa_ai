@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch'; // Fetching the image from the result
 import { uploadFile } from '../../utils/minioClient';
+import { checkRateLimit, recordRequest } from '../../utils/rateLimit';
 
 // 定义多个FAL_KEY
 const FAL_KEYS = process.env.FAL_KEYS ? process.env.FAL_KEYS.split(',') : [];
@@ -73,6 +74,24 @@ function saveImageMetadata(userId, imageName, prompt, imageUrl) {
     }
 }
 
+// 获取客户端真实IP地址
+function getClientIp(req) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const realIp = req.headers['x-real-ip'];
+    
+    if (forwarded) {
+        // 从转发的IP中获取第一个IP（通常是客户端真实IP）
+        return forwarded.split(',')[0].trim();
+    }
+    
+    if (realIp) {
+        return realIp;
+    }
+    
+    // 如果没有代理信息，则使用直接连接的IP
+    return req.socket.remoteAddress || 'unknown';
+}
+
 export default async function handler(req, res) {
     if (req.method !== "POST") {
         return res.status(405).json({ message: "Method Not Allowed" });
@@ -92,6 +111,29 @@ export default async function handler(req, res) {
         userId, // 新增用户ID参数
         loras = [] // Default to an empty array if not provided
     } = req.body;
+
+    // 获取客户端IP
+    const clientIp = getClientIp(req);
+    console.log(`[请求信息] 用户ID: ${userId}, IP: ${clientIp}`);
+    
+    // 检查速率限制
+    const rateLimitCheck = checkRateLimit(clientIp);
+    
+    // 如果超出速率限制，返回429状态码
+    if (rateLimitCheck.limited) {
+        console.log(`[速率限制] IP: ${clientIp} 已达到生成图片限制`);
+        return res.status(429).json({ 
+            message: "请求频率超出限制，请稍后再试", 
+            error: "RATE_LIMITED",
+            rateLimitInfo: {
+                remaining: rateLimitCheck.remaining,
+                resetTime: rateLimitCheck.resetTime,
+                resetTimeFormatted: rateLimitCheck.resetTimeFormatted,
+                limit: 5,
+                windowMs: 10 * 60 * 1000 // 10分钟
+            }
+        });
+    }
 
     try {
         // 获取下一个FAL_KEY并配置
@@ -135,6 +177,9 @@ export default async function handler(req, res) {
         
         // 保存图像元数据 - 包含MinIO URL
         saveImageMetadata(userId, imageName, prompt, uploadResult.url);
+        
+        // 记录成功的请求到速率限制
+        recordRequest(clientIp);
 
         // Return MinIO URL instead of local file path
         res.status(200).json({ 
@@ -146,7 +191,14 @@ export default async function handler(req, res) {
                 keyIndex: keyInfo.keyIndex + 1, // 对用户展示从1开始计数
                 totalKeys: keyInfo.totalKeys
             },
-            userId: userId
+            userId: userId,
+            rateLimitInfo: {
+                remaining: rateLimitCheck.remaining - 1, // 减去当前请求后的剩余次数
+                resetTime: rateLimitCheck.resetTime,
+                resetTimeFormatted: rateLimitCheck.resetTimeFormatted,
+                limit: 5,
+                windowMs: 10 * 60 * 1000 // 10分钟
+            }
         });
     } catch (error) {
         console.error(`[FAL-Key] 错误: ${error.message}`);
